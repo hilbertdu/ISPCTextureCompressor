@@ -27,6 +27,8 @@
 #include "processing.h"
 #include "StopWatch.h" // Timer.
 #include <cmath>
+#include <fstream>
+#include <iostream>
 
 CompressionFunc* gCompressionFunc = nullptr;
 bool gMultithreaded = true;
@@ -159,7 +161,23 @@ HRESULT LoadTexture(LPTSTR file)
     // Load the uncompressed texture.
     HRESULT hr;
     DirectX::ScratchImage image;
-    V_RETURN(DirectX::LoadFromDDSFile(file, DirectX::DDS_FLAGS_FORCE_RGB, nullptr, image));
+
+    std::wstring filePath(file);
+    std::wstring suffix = filePath.substr(filePath.length() - 4, 4);
+	std::transform(suffix.begin(), suffix.end(), suffix.begin(), [](unsigned char c) { return ::tolower(c); });
+    DirectX::TexMetadata metadata;
+    if (suffix == L".tga")
+    {
+        gMultithreaded = false;
+        //DirectX::ScratchImage imageNPOT;        
+        V_RETURN(DirectX::LoadFromTGAFile(file, &metadata, image));
+        //V_RETURN(DirectX::Resize(*imageNPOT.GetImages(), 1024, 1024, DirectX::TEX_FILTER_CUBIC, image));
+    }
+    else
+    {
+        gMultithreaded = true;
+        V_RETURN(DirectX::LoadFromDDSFile(file, DirectX::DDS_FLAGS_FORCE_RGB, nullptr, image));
+    }
     V_RETURN(DirectX::CreateShaderResourceViewEx(DXUTGetD3D11Device(), image.GetImages(), image.GetImageCount(), image.GetMetadata(), D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, true, &gUncompressedSRV));
 
     // Pad the texture.
@@ -381,6 +399,45 @@ HRESULT CompressTexture(ID3D11ShaderResourceView* uncompressedSRV, ID3D11ShaderR
 
         // Compress the uncompressed texels.
         CompressImage(&input, output);
+
+		struct astc_header
+		{
+			uint8_t magic[4];
+			uint8_t blockdim_x;
+			uint8_t blockdim_y;
+			uint8_t blockdim_z;
+			uint8_t xsize[3];			// x-size = xsize[0] + xsize[1] + xsize[2]
+			uint8_t ysize[3];			// x-size, y-size and z-size are given in texels;
+			uint8_t zsize[3];			// block count is inferred
+		};
+#define MAGIC_FILE_CONSTANT 0x5CA1AB13
+
+        astc_header header;
+		header.magic[0] = MAGIC_FILE_CONSTANT & 0xFF;
+        header.magic[1] = (MAGIC_FILE_CONSTANT >> 8) & 0xFF;
+        header.magic[2] = (MAGIC_FILE_CONSTANT >> 16) & 0xFF;
+        header.magic[3] = (MAGIC_FILE_CONSTANT >> 24) & 0xFF;
+        header.blockdim_x = 8;
+        header.blockdim_y = 8;
+        header.blockdim_z = 1;
+		header.xsize[0] = input.width & 0xFF;
+		header.xsize[1] = (input.width >> 8) & 0xFF;
+		header.xsize[2] = (input.width >> 16) & 0xFF;
+		header.ysize[0] = input.height & 0xFF;
+		header.ysize[1] = (input.height >> 8) & 0xFF;
+		header.ysize[2] = (input.height >> 16) & 0xFF;
+		header.zsize[0] = 1 & 0xFF;
+		header.zsize[1] = (1 >> 8) & 0xFF;
+		header.zsize[2] = (1 >> 16) & 0xFF;
+        int outSize = (input.width / 8) * (input.height / 8) * GetBytesPerBlock(gCompressionFunc);
+        
+        int size = sizeof(header);
+
+        // Save output to file
+        std::ofstream outfile("output", std::ios::binary);
+        outfile.write((char*)&header, sizeof(header));
+        outfile.write((char*)output, outSize);
+        outfile.close();
 
         // remap for DX (expanding inplace, bottom-up)
         int output_stride = (input.width/4)*GetBytesPerBlock(gCompressionFunc);
@@ -1106,12 +1163,18 @@ bool IsBC6H(CompressionFunc* fn)
         fn == CompressImageBC6H_veryslow;
 }
 
+bool IsASTC(CompressionFunc* fn)
+{
+	return
+		fn == CompressImageASTC_alpha_slow;
+}
+
 DXGI_FORMAT GetFormatFromCompressionFunc(CompressionFunc* fn)
 {
     if (fn == CompressImageBC1) return DXGI_FORMAT_BC1_UNORM_SRGB;
     if (fn == CompressImageBC3) return DXGI_FORMAT_BC3_UNORM_SRGB;
 
-    if (IsBC6H(fn)) return DXGI_FORMAT_BC6H_UF16;
+    if (IsBC6H(fn) || IsASTC(fn)) return DXGI_FORMAT_BC6H_UF16;
 
     return DXGI_FORMAT_BC7_UNORM_SRGB;
 }
@@ -1158,3 +1221,13 @@ DECLARE_CompressImageBC7_profile(alpha_veryfast);
 DECLARE_CompressImageBC7_profile(alpha_fast);
 DECLARE_CompressImageBC7_profile(alpha_basic);
 DECLARE_CompressImageBC7_profile(alpha_slow);
+
+#define DECLARE_CompressImageASTC_profile(profile)                              \
+void CompressImageASTC_ ## profile(const rgba_surface * input, BYTE * output)   \
+{                                                                               \
+    astc_enc_settings settings;                                                 \
+    GetProfile_astc_ ## profile(&settings, 8, 8);                               \
+    CompressBlocksASTC(input, output, &settings);                               \
+}
+
+DECLARE_CompressImageASTC_profile(alpha_slow);

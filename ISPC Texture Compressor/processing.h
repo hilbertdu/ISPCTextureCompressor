@@ -110,3 +110,4 @@ void CompressImageBC7_alpha_veryfast(const rgba_surface* input, BYTE* output);
 void CompressImageBC7_alpha_fast(const rgba_surface* input, BYTE* output);
 void CompressImageBC7_alpha_basic(const rgba_surface* input, BYTE* output);
 void CompressImageBC7_alpha_slow(const rgba_surface* input, BYTE* output);
+void CompressImageASTC_alpha_slow(const rgba_surface* input, BYTE* output);

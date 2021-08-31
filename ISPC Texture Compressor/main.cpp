@@ -213,6 +213,7 @@ int WINAPI wWinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdL
         comboBox->AddItem(L"BC7 alpha-fast (RGBA)", (void *)(CompressImageBC7_alpha_fast));
         comboBox->AddItem(L"BC7 alpha-basic (RGBA)", (void *)(CompressImageBC7_alpha_basic));
         comboBox->AddItem(L"BC7 alpha-slow (RGBA)", (void *)(CompressImageBC7_alpha_slow));
+        comboBox->AddItem(L"ASTC alpha-slow (RGBA)", (void*)(CompressImageASTC_alpha_slow));
     }
 
     SetCompressionFunc(CompressImageBC1);
@@ -540,7 +541,7 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
             openFileName.lStructSize = sizeof(OPENFILENAME);
             openFileName.lpstrFile = file;
             openFileName.nMaxFile = MAX_PATH;
-            openFileName.lpstrFilter = L"DDS\0*.dds\0\0";
+            openFileName.lpstrFilter = L"DDS\0*.dds\0TGA\0*.tga\0\0";
             openFileName.nFilterIndex = 1;
             openFileName.lpstrInitialDir = NULL;
             openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
